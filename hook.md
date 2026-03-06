@@ -22,34 +22,47 @@ public class JiraHook {
     private static final String JIRA_API_TOKEN = "VOTRE_TOKEN_API_JIRA";
 
     public static void main(String[] args) {
+        System.out.println("🏁 [Git Hook] Démarrage du script Java...");
+        
+        // 0. Désactiver la vérification SSL (A faire avant tout appel HTTP)
+        disableSslVerification();
+        
         try {
-            // 1. Récupérer le message du dernier commit
-            String commitMsg = executeCommand("git log -1 --pretty=%B");
-
-            // 2. Chercher le footer avec le format exact : jira: #ASJ-479 'commentaire' 'Colonne'
-            Pattern pattern = Pattern.compile("(?m)^jira:\\s+#([A-Z0-9]+-\\d+)\\s+'([^']+)'\\s+'([^']+)'\\s*$");
+            // 1. Récupérer le message du dernier commit avec ProcessBuilder
+            String commitMsg = executeCommand("git", "log", "-1", "--pretty=%B");
+            
+            // 2. Chercher le footer (mise à jour pour accepter les underscores dans la clé Jira)
+            Pattern pattern = Pattern.compile("(?m)^jira:\\s+#([A-Z0-9_]+-\\d+)\\s+'([^']+)'\\s+'([^']+)'\\s*$");
             Matcher matcher = pattern.matcher(commitMsg);
 
             if (!matcher.find()) {
-                // Pas de footer Jira détecté au bon format, on s'arrête silencieusement
+                System.out.println("ℹ️ [Git Hook] Aucun footer Jira détecté ou format invalide.");
                 return;
             }
 
-            String issueKey = matcher.group(1).trim();      // ex: ASJ-479
-            String comment = matcher.group(2).trim();       // ex: ticket résolu
-            String targetColumn = matcher.group(3).trim();  // ex: Terminer
+            String issueKey = matcher.group(1).trim();           // ex: AERL_JDCBP-513
+            String comment = matcher.group(2).trim();            // ex: ticket résolu
+            String targetColumnOrId = matcher.group(3).trim();   // ex: Terminé OU 31
 
-            System.out.println(" [Git Hook] Déplacement de " + issueKey + " vers '" + targetColumn + "'...");
+            System.out.println("🚀 [Git Hook] Footer détecté ! Cible : '" + targetColumnOrId + "'...");
 
             // 3. Préparer l'authentification (Compatible Java 8)
             String auth = Base64.getEncoder().encodeToString((JIRA_EMAIL + ":" + JIRA_API_TOKEN).getBytes("UTF-8"));
 
-            // 4. Récupérer l'ID de la transition (colonne)
-            String transitionId = getTransitionId(auth, issueKey, targetColumn);
-
-            if (transitionId == null) {
-                System.out.println(" [Git Hook] Impossible de trouver la transition '" + targetColumn + "' pour le ticket " + issueKey);
-                return;
+            // 4. Déterminer l'ID de transition
+            String transitionId;
+            
+            // Si la cible est uniquement composée de chiffres, on considère que c'est un ID direct
+            if (targetColumnOrId.matches("\\d+")) {
+                transitionId = targetColumnOrId;
+                System.out.println("ℹ️ [Git Hook] Utilisation directe de l'ID de transition : " + transitionId);
+            } else {
+                // Sinon, on cherche l'ID par son nom (attention aux accents selon l'encodage du terminal)
+                transitionId = getTransitionId(auth, issueKey, targetColumnOrId);
+                if (transitionId == null) {
+                    System.out.println("❌ [Git Hook] Impossible de trouver la transition '" + targetColumnOrId + "' pour le ticket " + issueKey);
+                    return;
+                }
             }
 
             // 5. Exécuter la transition et ajouter le commentaire (API Jira)
@@ -61,14 +74,16 @@ public class JiraHook {
             boolean success = executeTransition(auth, issueKey, payload);
 
             if (success) {
-                System.out.println(" [Git Hook] Succès ! Le ticket " + issueKey + " a été mis à jour.");
+                System.out.println("✅ [Git Hook] Succès ! Le ticket " + issueKey + " a été mis à jour.");
             }
 
         } catch (Exception e) {
-            System.out.println(" [Git Hook] Erreur lors de l'exécution : " + e.getMessage());
+            System.out.println("⚠️ [Git Hook] Erreur lors de l'exécution : " + e.getMessage());
+            e.printStackTrace(); // Affiche l'erreur complète pour le débogage
         }
     }
 
+    // --- Méthodes HTTP Java 8 (HttpURLConnection) ---
 
     private static String getTransitionId(String auth, String issueKey, String targetColumn) throws Exception {
         URL url = new URL(JIRA_URL + "/rest/api/2/issue/" + issueKey + "/transitions");
@@ -118,15 +133,19 @@ public class JiraHook {
         con.disconnect();
         
         if (status < 200 || status >= 300) {
-            System.out.println(" [Git Hook] Erreur HTTP : " + status);
+            System.out.println("❌ [Git Hook] Erreur HTTP : " + status);
             return false;
         }
         return true;
     }
 
+    // --- Utilitaires ---
 
-    private static String executeCommand(String command) throws Exception {
-        Process p = Runtime.getRuntime().exec(command);
+    private static String executeCommand(String... command) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(true); // Fusionne stderr et stdout pour ne rater aucune erreur git
+        Process p = pb.start();
+
         BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
         StringBuilder output = new StringBuilder();
         String line;
@@ -141,7 +160,7 @@ public class JiraHook {
         return text.replace("\"", "\\\"").replace("\n", "\\n");
     }
 
-        // --- Contournement SSL ---
+    // --- Contournement SSL ---
     
     private static void disableSslVerification() {
         try {
