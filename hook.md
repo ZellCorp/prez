@@ -8,7 +8,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class JiraHook {
-
+    disableSslVerification()
     // ⚙️ CONFIGURATION JIRA À REMPLIR
     private static final String JIRA_URL = "https://votre-domaine.atlassian.net";
     private static final String JIRA_EMAIL = "votre.email@entreprise.com";
@@ -132,5 +132,34 @@ public class JiraHook {
 
     private static String escapeJson(String text) {
         return text.replace("\"", "\\\"").replace("\n", "\\n");
+    }
+
+        // --- Contournement SSL ---
+    
+    private static void disableSslVerification() {
+        try {
+            // Créer un gestionnaire de confiance qui accepte tout
+            TrustManager[] trustAllCerts = new TrustManager[] {
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() { return null; }
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+                }
+            };
+
+            // Installer le gestionnaire de confiance permissif
+            SSLContext sc = SSLContext.getInstance("SSL");
+            sc.init(null, trustAllCerts, new java.security.SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+
+            // Créer et installer un vérificateur de nom de domaine permissif
+            HostnameVerifier allHostsValid = new HostnameVerifier() {
+                public boolean verify(String hostname, SSLSession session) { return true; }
+            };
+            HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+            
+        } catch (Exception e) {
+            System.out.println("⚠️ [Git Hook] Impossible de désactiver la vérification SSL : " + e.getMessage());
+        }
     }
 }
