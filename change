@@ -1,0 +1,65 @@
+```python
+import os
+import subprocess
+import time
+
+def run_git_command(args):
+    """Exécute une commande Git de manière sécurisée."""
+    try:
+        subprocess.run(["git"] + args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erreur lors de l'exécution de 'git {' '.join(args)}':")
+        print(e.stderr.decode('utf-8'))
+        exit(1)
+
+def main():
+    print("🚀 Démarrage de la génération de commits de test...\n")
+
+    # 1. Initialisation du dépôt Git si nécessaire
+    if not os.path.exists(".git"):
+        print("📁 Dépôt Git introuvable. Initialisation ('git init')...")
+        run_git_command(["init"])
+    else:
+        print("📁 Dépôt Git détecté.")
+
+    # 2. Liste des messages de commit (Conventional Commits)
+    # Inclut un mix de chore, feat, fix, docs et un BREAKING CHANGE pour tester le bump majeur
+    commit_messages = [
+        "chore: initialisation de la structure du projet",
+        "feat(auth): ajouter la page de connexion",
+        "fix(auth): empêcher la soumission multiple du formulaire",
+        "docs(readme): ajouter les instructions d'installation",
+        "feat(api): créer l'endpoint pour récupérer le profil utilisateur",
+        "style(ui): harmoniser les couleurs des boutons",
+        "refactor(api): nettoyer la logique de validation du token",
+        "fix(api): corriger le code de statut HTTP sur les erreurs 404",
+        "feat(db)!: migration vers la nouvelle base de données\n\nBREAKING CHANGE: La structure de la table utilisateur a totalement changé."
+    ]
+
+    fichier_test = "fichier_bidon.txt"
+
+    # 3. Boucle de création des commits
+    for index, message in enumerate(commit_messages, start=1):
+        titre_commit = message.split('\n')[0]
+        print(f"[{index}/{len(commit_messages)}] Génération : {titre_commit}")
+
+        # Modifier un fichier pour que Git ait quelque chose à commiter
+        with open(fichier_test, "a", encoding="utf-8") as f:
+            f.write(f"Modification pour le commit {index} : {titre_commit}\n")
+
+        # Ajouter le fichier à l'index Git
+        run_git_command(["add", fichier_test])
+
+        # Créer le commit
+        run_git_command(["commit", "-m", message])
+
+        # Petite pause pour garantir un ordre chronologique strict des timestamps Git
+        time.sleep(0.5)
+
+    print("\n✅ Terminé ! Les commits ont été générés avec succès.")
+    print("👉 Vous pouvez maintenant exécuter 'npm run release' (ou npx commit-and-tag-version) pour générer votre CHANGELOG.md.")
+
+if __name__ == "__main__":
+    main()
+
+```
